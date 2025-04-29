@@ -1,133 +1,242 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Kova Aracılı Boyama Uygulaması</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 10px;
+    }
 
-# Contributor Covenant Code of Conduct
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+      align-items: center;
+    }
 
-## Our Pledge
+    canvas {
+      width: 100%;
+      max-width: 100%;
+      border: 2px solid #333;
+      touch-action: none;
+    }
 
-We as members, contributors, and leaders pledge to make participation in our
-community a harassment-free experience for everyone, regardless of age, body
-size, visible or invisible disability, ethnicity, sex characteristics, gender
-identity and expression, level of experience, education, socio-economic status,
-nationality, personal appearance, race, caste, color, religion, or sexual
-identity and orientation.
+    button, select, input[type="range"], input[type="color"] {
+      font-size: 14px;
+      padding: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Kova Aracılı Boyama Uygulaması</h2>
 
-We pledge to act and interact in ways that contribute to an open, welcoming,
-diverse, inclusive, and healthy community.
+  <input type="file" id="imageLoader" accept="image/*">
 
-## Our Standards
+  <div id="controls">
+    Renk: <input type="color" id="colorPicker" value="#ff0000">
+    Kalınlık: <input type="range" id="brushSize" min="1" max="30" value="5">
+    Uç: 
+    <select id="brushShape">
+      <option value="round">Yuvarlak</option>
+      <option value="square">Kare</option>
+    </select>
+    <button id="eraser">Silgi</button>
+    <button id="fill">Kova</button>
+    <button id="undo">Geri Al</button>
+    <button id="clear">Temizle</button>
+    <button id="save">Kaydet</button>
+  </div>
 
-Examples of behavior that contributes to a positive environment for our
-community include:
+  <canvas id="paintCanvas" width="800" height="600"></canvas>
 
-* Demonstrating empathy and kindness toward other people
-* Being respectful of differing opinions, viewpoints, and experiences
-* Giving and gracefully accepting constructive feedback
-* Accepting responsibility and apologizing to those affected by our mistakes,
-  and learning from the experience
-* Focusing on what is best not just for us as individuals, but for the overall
-  community
+  <script>
+    const canvas = document.getElementById('paintCanvas');
+    const ctx = canvas.getContext('2d');
+    const imageLoader = document.getElementById('imageLoader');
+    const colorPicker = document.getElementById('colorPicker');
+    const brushSize = document.getElementById('brushSize');
+    const brushShape = document.getElementById('brushShape');
+    const eraserBtn = document.getElementById('eraser');
+    const fillBtn = document.getElementById('fill');
+    const undoBtn = document.getElementById('undo');
+    const saveBtn = document.getElementById('save');
+    const clearBtn = document.getElementById('clear');
 
-Examples of unacceptable behavior include:
+    let painting = false;
+    let erasing = false;
+    let filling = false;
+    const history = [];
 
-* The use of sexualized language or imagery, and sexual attention or advances of
-  any kind
-* Trolling, insulting or derogatory comments, and personal or political attacks
-* Public or private harassment
-* Publishing others' private information, such as a physical or email address,
-  without their explicit permission
-* Other conduct which could reasonably be considered inappropriate in a
-  professional setting
+    function saveState() {
+      history.push(canvas.toDataURL());
+      if (history.length > 20) history.shift();
+    }
 
-## Enforcement Responsibilities
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches) {
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top
+        };
+      }
+      return { x: e.offsetX, y: e.offsetY };
+    }
 
-Community leaders are responsible for clarifying and enforcing our standards of
-acceptable behavior and will take appropriate and fair corrective action in
-response to any behavior that they deem inappropriate, threatening, offensive,
-or harmful.
+    function draw(e) {
+      if (!painting || filling) return;
+      const pos = getPos(e);
+      ctx.lineWidth = brushSize.value;
+      ctx.lineCap = brushShape.value;
+      ctx.strokeStyle = erasing ? '#ffffff' : colorPicker.value;
 
-Community leaders have the right and responsibility to remove, edit, or reject
-comments, commits, code, wiki edits, issues, and other contributions that are
-not aligned to this Code of Conduct, and will communicate reasons for moderation
-decisions when appropriate.
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    }
 
-## Scope
+    imageLoader.addEventListener('change', function (e) {
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        const img = new Image();
+        img.onload = function () {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          saveState();
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    });
 
-This Code of Conduct applies within all community spaces, and also applies when
-an individual is officially representing the community in public spaces.
-Examples of representing our community include using an official e-mail address,
-posting via an official social media account, or acting as an appointed
-representative at an online or offline event.
+    canvas.addEventListener('mousedown', (e) => {
+      if (filling) {
+        const pos = getPos(e);
+        saveState();
+        floodFill(pos.x, pos.y, hexToRgba(colorPicker.value));
+      } else {
+        painting = true;
+        saveState();
+        draw(e);
+      }
+    });
 
-## Enforcement
+    canvas.addEventListener('mouseup', () => {
+      painting = false;
+      ctx.beginPath();
+    });
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-[INSERT CONTACT METHOD].
-All complaints will be reviewed and investigated promptly and fairly.
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('touchstart', (e) => {
+      if (filling) {
+        const pos = getPos(e);
+        saveState();
+        floodFill(pos.x, pos.y, hexToRgba(colorPicker.value));
+      } else {
+        painting = true;
+        saveState();
+        draw(e);
+      }
+    });
+    canvas.addEventListener('touchend', () => {
+      painting = false;
+      ctx.beginPath();
+    });
 
-All community leaders are obligated to respect the privacy and security of the
-reporter of any incident.
+    canvas.addEventListener('touchmove', draw);
 
-## Enforcement Guidelines
+    eraserBtn.addEventListener('click', () => {
+      erasing = !erasing;
+      filling = false;
+      eraserBtn.textContent = erasing ? 'Fırçaya Dön' : 'Silgi';
+      fillBtn.textContent = 'Kova';
+    });
 
-Community leaders will follow these Community Impact Guidelines in determining
-the consequences for any action they deem in violation of this Code of Conduct:
+    fillBtn.addEventListener('click', () => {
+      filling = !filling;
+      erasing = false;
+      fillBtn.textContent = filling ? 'Fırçaya Dön' : 'Kova';
+      eraserBtn.textContent = 'Silgi';
+    });
 
-### 1. Correction
+    undoBtn.addEventListener('click', () => {
+      if (history.length > 0) {
+        const last = history.pop();
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        img.src = last;
+      }
+    });
 
-**Community Impact**: Use of inappropriate language or other behavior deemed
-unprofessional or unwelcome in the community.
+    saveBtn.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'boyama.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    });
 
-**Consequence**: A private, written warning from community leaders, providing
-clarity around the nature of the violation and an explanation of why the
-behavior was inappropriate. A public apology may be requested.
+    clearBtn.addEventListener('click', () => {
+      saveState();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
 
-### 2. Warning
+    // --- KOVA ARACI (FLOOD FILL) ---
 
-**Community Impact**: A violation through a single incident or series of
-actions.
+    function floodFill(startX, startY, fillColor) {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      const targetColor = getColorAt(startX, startY, data);
+      if (!colorsMatch(targetColor, fillColor)) {
+        const pixelStack = [[startX, startY]];
+        while (pixelStack.length) {
+          const [x, y] = pixelStack.pop();
+          const idx = (y * canvas.width + x) * 4;
+          const currentColor = getColorAt(x, y, data);
+          if (colorsMatch(currentColor, targetColor)) {
+            setColorAt(idx, fillColor, data);
+            if (x > 0) pixelStack.push([x - 1, y]);
+            if (x < canvas.width - 1) pixelStack.push([x + 1, y]);
+            if (y > 0) pixelStack.push([x, y - 1]);
+            if (y < canvas.height - 1) pixelStack.push([x, y + 1]);
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
+    }
 
-**Consequence**: A warning with consequences for continued behavior. No
-interaction with the people involved, including unsolicited interaction with
-those enforcing the Code of Conduct, for a specified period of time. This
-includes avoiding interactions in community spaces as well as external channels
-like social media. Violating these terms may lead to a temporary or permanent
-ban.
+    function getColorAt(x, y, data) {
+      const index = (y * canvas.width + x) * 4;
+      return [
+        data[index],
+        data[index + 1],
+        data[index + 2],
+        data[index + 3]
+      ];
+    }
 
-### 3. Temporary Ban
+    function setColorAt(index, color, data) {
+      data[index] = color[0];
+      data[index + 1] = color[1];
+      data[index + 2] = color[2];
+      data[index + 3] = 255;
+    }
 
-**Community Impact**: A serious violation of community standards, including
-sustained inappropriate behavior.
+    function colorsMatch(a, b) {
+      return Math.abs(a[0] - b[0]) < 30 &&
+             Math.abs(a[1] - b[1]) < 30 &&
+             Math.abs(a[2] - b[2]) < 30;
+    }
 
-**Consequence**: A temporary ban from any sort of interaction or public
-communication with the community for a specified period of time. No public or
-private interaction with the people involved, including unsolicited interaction
-with those enforcing the Code of Conduct, is allowed during this period.
-Violating these terms may lead to a permanent ban.
-
-### 4. Permanent Ban
-
-**Community Impact**: Demonstrating a pattern of violation of community
-standards, including sustained inappropriate behavior, harassment of an
-individual, or aggression toward or disparagement of classes of individuals.
-
-**Consequence**: A permanent ban from any sort of public interaction within the
-community.
-
-## Attribution
-
-This Code of Conduct is adapted from the [Contributor Covenant][homepage],
-version 2.1, available at
-[https://www.contributor-covenant.org/version/2/1/code_of_conduct.html][v2.1].
-
-Community Impact Guidelines were inspired by
-[Mozilla's code of conduct enforcement ladder][Mozilla CoC].
-
-For answers to common questions about this code of conduct, see the FAQ at
-[https://www.contributor-covenant.org/faq][FAQ]. Translations are available at
-[https://www.contributor-covenant.org/translations][translations].
-
-[homepage]: https://www.contributor-covenant.org
-[v2.1]: https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
-[Mozilla CoC]: https://github.com/mozilla/diversity
-[FAQ]: https://www.contributor-covenant.org/faq
-[translations]: https://www.contributor-covenant.org/translations
+    function hexToRgba(hex) {
+      const bigint = parseInt(hex.slice(1), 16);
+      return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255, 255];
+    }
+  </script>
+</body>
+</html>
